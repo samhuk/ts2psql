@@ -44,8 +44,8 @@ out.txt:
 ```postgresql
 CREATE TABLE users (
   id serial PRIMARY KEY,
-	uuid VARCHAR ( 5000 ) UNIQUE NOT NULL,
-	name VARCHAR ( 50 ) NOT NULL,
+  uuid VARCHAR ( 50 ) UNIQUE NOT NULL,
+  name VARCHAR ( 50 ) NOT NULL,
   ...
 );
 ```
