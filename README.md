@@ -1,6 +1,8 @@
 # ts2psql
 
-A script that converts Typescript type declarations into PostgreSQL CREATE TABLE scripts
+NOTE: This is WIP. Details in this readme are ideal state. Current usage: `go build main.go && ./main` (or main.exe if on Windows OS).
+
+A script that converts Typescript type declarations into PostgreSQL CREATE TABLE scripts.
 
 ## Usage
 
