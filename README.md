@@ -39,7 +39,7 @@ export type User = {
 ts2psql -f ./test.ts -o ./out.txt
 ```
 
-out.txt:
+out.sql:
 
 ```postgresql
 CREATE TABLE users (
