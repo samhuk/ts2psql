@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 )
 
 type TypeDeclaration struct {
@@ -31,6 +32,10 @@ type TypePropertyDeclaration struct {
 type TypePropertyDeclarationMetaData struct {
 	PrimaryKey bool
 	Serial     bool
+	Unique     bool
+	MaxLength  int
+	NumberType string
+	ColumnName string
 }
 
 var PATHS = [1]string{"./test.ts"}
@@ -40,13 +45,15 @@ var typeDeclarationEndRegex = regexp.MustCompile(`\/\*\s*ts2psql\s*end\s*\*\/`)
 var typePropertyRegex = regexp.MustCompile(`\/\*\s*ts2psql\s*({?.*}?)\s*\*\/\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\??:\s*([a-zA-Z_$][a-zA-Z0-9_$]*)`)
 
 func main() {
-	// Gzip the large files
-	for i := 0; i < len(PATHS); i++ {
-		var _, err = parseFiles(PATHS[:])
-		if err != nil {
-			fmt.Printf("Error occured converting file %v:\n%v\n", PATHS[i], err)
-		}
+	var typeDeclarations, err = parseFiles(PATHS[:])
+	if err != nil {
+		fmt.Println("Error occured parsing files:", err)
 	}
+	createTableStatements := make([]string, len(typeDeclarations))
+	for i := 0; i < len(typeDeclarations); i++ {
+		createTableStatements[i] = convertTypeDeclarationToCreateTableStatement(typeDeclarations[i])
+	}
+	os.WriteFile("out.sql", []byte(strings.Join(createTableStatements, "\n\n")), 0666)
 }
 
 func parseFiles(paths []string) ([]TypeDeclaration, error) {
@@ -77,7 +84,6 @@ func parseFile(path string) ([]TypeDeclaration, error) {
 		typeDeclaration := TypeDeclaration{typeName, metaData, typePropertyDeclarations}
 		typeDeclarations = append(typeDeclarations, typeDeclaration)
 		i += end
-		fmt.Println(typeDeclaration)
 	}
 
 	return typeDeclarations, nil
@@ -108,7 +114,82 @@ func parseTypeDeclarationText(typeDeclarationText string) ([]TypePropertyDeclara
 }
 
 func convertTypeDeclarationToCreateTableStatement(typeDeclaration TypeDeclaration) string {
-	return ""
+	str := ""
+	str += "CREATE TABLE "
+
+	tableName := ""
+	if len(typeDeclaration.MetaData.TableName) > 0 {
+		tableName = typeDeclaration.MetaData.TableName
+	} else {
+		tableName = toSnakeCase(typeDeclaration.Name)
+	}
+
+	str += tableName // TODO provide default in case not specified
+	str += " ( \n  "
+	for i := 0; i < len(typeDeclaration.TypePropertyDeclarations); i++ {
+		prop := typeDeclaration.TypePropertyDeclarations[i]
+		// Column name
+		propName := ""
+		if len(prop.MetaData.ColumnName) > 0 {
+			propName = prop.MetaData.ColumnName
+		} else {
+			propName = toSnakeCase(prop.Name)
+		}
+		str += propName + " "
+
+		// Field type name
+		str += convertTypePropertyDeclarationTypeNameToSqlTypeName(prop.TypeName, prop.MetaData)
+		str += " "
+
+		// Optionally add "serial" property
+		if prop.MetaData.Serial {
+			str += "serial "
+		}
+		// Optionally add  "PRIMARY KEY" property
+		if prop.MetaData.PrimaryKey {
+			str += "PRIMARY KEY "
+		}
+		// Optionally add  "UNIQUE" property
+		if prop.MetaData.Unique {
+			str += "UNIQUE "
+		}
+		// Optionally add  "NOT NULL" property
+		if !prop.Optional {
+			str += "NOT NULL "
+		}
+		if i != len(typeDeclaration.TypePropertyDeclarations)-1 {
+			str += "\n  "
+		}
+	}
+	str += "\n);"
+	return str
+}
+
+func convertTypePropertyDeclarationTypeNameToSqlTypeName(typeName string, metaData TypePropertyDeclarationMetaData) string {
+	switch typeName {
+	case "string":
+		str := ""
+		str += "VARCHAR("
+		if metaData.MaxLength == 0 {
+			str += "50"
+		} else {
+			str += fmt.Sprint(metaData.MaxLength)
+		}
+		str += ")"
+		return str
+	case "number":
+		if len(metaData.NumberType) > 0 {
+			return fmt.Sprint(metaData.NumberType)
+		} else {
+			return "INTEGER"
+		}
+	case "boolean":
+		return "BOOLEAN"
+	case "Date":
+		return "TIMESTAMP"
+	default:
+		return "[ERROR: \"" + typeName + "\" is not a valid type name]"
+	}
 }
 
 func readFile(path string) string {
@@ -117,4 +198,13 @@ func readFile(path string) string {
 		fmt.Printf("Error occured reading in file %v:\n%v\n", path, err)
 	}
 	return string(fileText)
+}
+
+var matchFirstCap = regexp.MustCompile("(.)([A-Z][a-z]+)")
+var matchAllCap = regexp.MustCompile("([a-z0-9])([A-Z])")
+
+func toSnakeCase(str string) string {
+	snake := matchFirstCap.ReplaceAllString(str, "${1}_${2}")
+	snake = matchAllCap.ReplaceAllString(snake, "${1}_${2}")
+	return strings.ToLower(snake)
 }
