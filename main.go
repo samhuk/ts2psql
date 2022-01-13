@@ -18,8 +18,7 @@ type TypeDeclaration struct {
 }
 
 type TypeDeclarationMetaData struct {
-	TableName   string
-	ToSnakeCase bool
+	TableName string
 }
 
 type TypePropertyDeclaration struct {
@@ -51,7 +50,7 @@ func main() {
 	}
 	createTableStatements := make([]string, len(typeDeclarations))
 	for i := 0; i < len(typeDeclarations); i++ {
-		createTableStatements[i] = convertTypeDeclarationToCreateTableStatement(typeDeclarations[i])
+		createTableStatements[i] = createCreateTableStatement(typeDeclarations[i])
 	}
 	os.WriteFile("out.sql", []byte(strings.Join(createTableStatements, "\n\n")), 0666)
 }
@@ -113,50 +112,14 @@ func parseTypeDeclarationText(typeDeclarationText string) ([]TypePropertyDeclara
 	return typePropertyDeclarations, nil
 }
 
-func convertTypeDeclarationToCreateTableStatement(typeDeclaration TypeDeclaration) string {
+func createCreateTableStatement(typeDeclaration TypeDeclaration) string {
 	str := ""
 	str += "CREATE TABLE "
 
-	tableName := ""
-	if len(typeDeclaration.MetaData.TableName) > 0 {
-		tableName = typeDeclaration.MetaData.TableName
-	} else {
-		tableName = toSnakeCase(typeDeclaration.Name)
-	}
-
-	str += tableName // TODO provide default in case not specified
+	str += createTableName(typeDeclaration)
 	str += " ( \n  "
 	for i := 0; i < len(typeDeclaration.TypePropertyDeclarations); i++ {
-		prop := typeDeclaration.TypePropertyDeclarations[i]
-		// Column name
-		propName := ""
-		if len(prop.MetaData.ColumnName) > 0 {
-			propName = prop.MetaData.ColumnName
-		} else {
-			propName = toSnakeCase(prop.Name)
-		}
-		str += propName + " "
-
-		// Field type name
-		str += convertTypePropertyDeclarationTypeNameToSqlTypeName(prop.TypeName, prop.MetaData)
-		str += " "
-
-		// Optionally add "serial" property
-		if prop.MetaData.Serial {
-			str += "serial "
-		}
-		// Optionally add  "PRIMARY KEY" property
-		if prop.MetaData.PrimaryKey {
-			str += "PRIMARY KEY "
-		}
-		// Optionally add  "UNIQUE" property
-		if prop.MetaData.Unique {
-			str += "UNIQUE "
-		}
-		// Optionally add  "NOT NULL" property
-		if !prop.Optional {
-			str += "NOT NULL "
-		}
+		str += createColumnDeclaration(typeDeclaration.TypePropertyDeclarations[i])
 		if i != len(typeDeclaration.TypePropertyDeclarations)-1 {
 			str += "\n  "
 		}
@@ -165,21 +128,65 @@ func convertTypeDeclarationToCreateTableStatement(typeDeclaration TypeDeclaratio
 	return str
 }
 
-func convertTypePropertyDeclarationTypeNameToSqlTypeName(typeName string, metaData TypePropertyDeclarationMetaData) string {
-	switch typeName {
+func createTableName(typeDeclaration TypeDeclaration) string {
+	if len(typeDeclaration.MetaData.TableName) > 0 {
+		return typeDeclaration.MetaData.TableName
+	} else {
+		return toSnakeCase(typeDeclaration.Name)
+	}
+}
+
+func createColumnDeclaration(typePropertyDeclaration TypePropertyDeclaration) string {
+	str := ""
+	// Column name
+	str += createColumnName(typePropertyDeclaration) + " "
+
+	// Field type name
+	str += createSqlTypeName(typePropertyDeclaration)
+	str += " "
+
+	// Optionally add "serial" property
+	if typePropertyDeclaration.MetaData.Serial {
+		str += "serial "
+	}
+	// Optionally add  "PRIMARY KEY" property
+	if typePropertyDeclaration.MetaData.PrimaryKey {
+		str += "PRIMARY KEY "
+	}
+	// Optionally add  "UNIQUE" property
+	if typePropertyDeclaration.MetaData.Unique {
+		str += "UNIQUE "
+	}
+	// Optionally add  "NOT NULL" property
+	if !typePropertyDeclaration.Optional {
+		str += "NOT NULL "
+	}
+	return strings.TrimSpace(str)
+}
+
+func createColumnName(typePropertyDeclaration TypePropertyDeclaration) string {
+	if len(typePropertyDeclaration.MetaData.ColumnName) > 0 {
+		return typePropertyDeclaration.MetaData.ColumnName
+	} else {
+		return toSnakeCase(typePropertyDeclaration.Name)
+	}
+}
+
+func createSqlTypeName(typePropertyDeclaration TypePropertyDeclaration) string {
+	switch typePropertyDeclaration.TypeName {
 	case "string":
 		str := ""
 		str += "VARCHAR("
-		if metaData.MaxLength == 0 {
+		if typePropertyDeclaration.MetaData.MaxLength == 0 {
 			str += "50"
 		} else {
-			str += fmt.Sprint(metaData.MaxLength)
+			str += fmt.Sprint(typePropertyDeclaration.MetaData.MaxLength)
 		}
 		str += ")"
 		return str
 	case "number":
-		if len(metaData.NumberType) > 0 {
-			return fmt.Sprint(metaData.NumberType)
+		if len(typePropertyDeclaration.MetaData.NumberType) > 0 {
+			return fmt.Sprint(typePropertyDeclaration.MetaData.NumberType)
 		} else {
 			return "INTEGER"
 		}
@@ -188,7 +195,7 @@ func convertTypePropertyDeclarationTypeNameToSqlTypeName(typeName string, metaDa
 	case "Date":
 		return "TIMESTAMP"
 	default:
-		return "[ERROR: \"" + typeName + "\" is not a valid type name]"
+		return "[ERROR: \"" + typePropertyDeclaration.TypeName + "\" is not a valid type name]"
 	}
 }
 
