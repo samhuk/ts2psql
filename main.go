@@ -181,8 +181,8 @@ func createColumnDeclarationStatement(typePropertyDeclaration TypePropertyDeclar
 
 	foreignTypeName := typePropertyDeclaration.MetaData.Fk.TypeName // Alias
 	if len(foreignTypeName) > 0 {
-		foundForeignTypeDeclaration := findTypeDeclarationByTypeName(foreignTypeName, typeDeclarations)
-		str += ",\n  FOREIGN KEY (" + typePropertyDeclaration.MetaData.ColumnName + ")\n    REFERENCES " + foundForeignTypeDeclaration.MetaData.TableName + " (" + typePropertyDeclaration.MetaData.Fk.Property + ")"
+		foundForeignTypeDeclarationTableName := findTypeDeclarationTableNameByTypeName(foreignTypeName, typeDeclarations)
+		str += ",\n  FOREIGN KEY (" + typePropertyDeclaration.MetaData.ColumnName + ")\n    REFERENCES " + foundForeignTypeDeclarationTableName + " (" + typePropertyDeclaration.MetaData.Fk.Property + ")"
 	}
 	// FOREIGN KEY (role_id)
 	//     REFERENCES roles (role_id)
@@ -190,13 +190,13 @@ func createColumnDeclarationStatement(typePropertyDeclaration TypePropertyDeclar
 	return strings.TrimSpace(str)
 }
 
-func findTypeDeclarationByTypeName(name string, typeDeclarations []TypeDeclaration) TypeDeclaration {
+func findTypeDeclarationTableNameByTypeName(name string, typeDeclarations []TypeDeclaration) string {
 	for i := 0; i < len(typeDeclarations); i++ {
 		if typeDeclarations[i].Name == name {
-			return typeDeclarations[i]
+			return typeDeclarations[i].MetaData.TableName
 		}
 	}
-	return TypeDeclaration{}
+	return "[ERROR: \"" + name + "\" is not a valid foreign key type. It does not match any of the type definition names]"
 }
 
 func createSqlTypeName(typePropertyDeclaration TypePropertyDeclaration) string {
