@@ -40,7 +40,7 @@ export type Order = {
 }
 /* ts2psql end */
 
-/* ts2psql { "tableName": "tire_orders" } */
+/* ts2psql */
 export type TireOrders = {
   /* ts2psql { "primaryKey": true, "serial": true } */
   id: number
@@ -48,7 +48,7 @@ export type TireOrders = {
   uuid: string
   /* ts2psql */
   tireId: number
-  /* ts2psql { "fk": { "type": User, "property": "id" } } */
+  /* ts2psql { "fk": { "type": "User", "property": "id" } } */
   userId: number
   /* ts2psql */
   cancelled: boolean

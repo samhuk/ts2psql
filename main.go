@@ -35,23 +35,34 @@ type TypePropertyDeclarationMetaData struct {
 	MaxLength  int
 	NumberType string
 	ColumnName string
+	Fk         ForeignKeyMetaData
+}
+
+type ForeignKeyMetaData struct {
+	TypeName string `json:"type"`
+	Property string
 }
 
 var PATHS = [1]string{"./test.ts"}
 
-var typeDeclarationStartRegex = regexp.MustCompile(`\/\*\s*ts2psql\s*({.*})\s*\*\/\s*export\s+type\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*{`)
+var typeDeclarationStartRegex = regexp.MustCompile(`\/\*\s*ts2psql\s*({?.*}?)\s*\*\/\s*export\s+type\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*{`)
 var typeDeclarationEndRegex = regexp.MustCompile(`\/\*\s*ts2psql\s*end\s*\*\/`)
 var typePropertyRegex = regexp.MustCompile(`\/\*\s*ts2psql\s*({?.*}?)\s*\*\/\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\??:\s*([a-zA-Z_$][a-zA-Z0-9_$]*)`)
 
 func main() {
+	// Parse files, creating instances of TypeDeclaration
 	var typeDeclarations, err = parseFiles(PATHS[:])
 	if err != nil {
 		fmt.Println("Error occured parsing files:", err)
 	}
+
+	// Create the CREATE TABLE statements
 	createTableStatements := make([]string, len(typeDeclarations))
 	for i := 0; i < len(typeDeclarations); i++ {
-		createTableStatements[i] = createCreateTableStatement(typeDeclarations[i])
+		createTableStatements[i] = createCreateTableStatement(typeDeclarations[i], typeDeclarations)
 	}
+
+	// Write CREATE TABLE statements to output file
 	os.WriteFile("out.sql", []byte(strings.Join(createTableStatements, "\n\n")), 0666)
 }
 
@@ -73,13 +84,18 @@ func parseFile(path string) ([]TypeDeclaration, error) {
 	for i < len(fileText) {
 		fileTextSlice := fileText[i:]
 		data := typeDeclarationStartRegex.FindStringSubmatchIndex(fileTextSlice)
+		if len(data) == 0 {
+			break
+		}
 		end := typeDeclarationEndRegex.FindStringIndex(fileTextSlice)[1]
 		typeDeclarationMetaDataJsonText := fileTextSlice[data[2]:data[3]]
 		typeName := fileTextSlice[data[4]:data[5]]
 		metaData := TypeDeclarationMetaData{}
 		_ = json.Unmarshal([]byte(typeDeclarationMetaDataJsonText), &metaData)
+		if len(metaData.TableName) == 0 {
+			metaData.TableName = toSnakeCase(typeName)
+		}
 		typePropertyDeclarations, _ := parseTypeDeclarationText(fileTextSlice[data[5]:end])
-
 		typeDeclaration := TypeDeclaration{typeName, metaData, typePropertyDeclarations}
 		typeDeclarations = append(typeDeclarations, typeDeclaration)
 		i += end
@@ -104,6 +120,9 @@ func parseTypeDeclarationText(typeDeclarationText string) ([]TypePropertyDeclara
 		typeName := textSlice[data[6]:data[7]]
 		metaData := TypePropertyDeclarationMetaData{}
 		_ = json.Unmarshal([]byte(TypePropertyDeclarationMetaDataJsonText), &metaData)
+		if len(metaData.ColumnName) == 0 {
+			metaData.ColumnName = toSnakeCase(name)
+		}
 		typePropertyDeclaration := TypePropertyDeclaration{name, typeName, false, metaData}
 		typePropertyDeclarations = append(typePropertyDeclarations, typePropertyDeclaration)
 		i += data[7]
@@ -112,34 +131,30 @@ func parseTypeDeclarationText(typeDeclarationText string) ([]TypePropertyDeclara
 	return typePropertyDeclarations, nil
 }
 
-func createCreateTableStatement(typeDeclaration TypeDeclaration) string {
+func createCreateTableStatement(typeDeclaration TypeDeclaration, typeDeclarations []TypeDeclaration) string {
 	str := ""
 	str += "CREATE TABLE "
 
-	str += createTableName(typeDeclaration)
+	str += typeDeclaration.MetaData.TableName
 	str += " ( \n  "
-	for i := 0; i < len(typeDeclaration.TypePropertyDeclarations); i++ {
-		str += createColumnDeclaration(typeDeclaration.TypePropertyDeclarations[i])
-		if i != len(typeDeclaration.TypePropertyDeclarations)-1 {
-			str += "\n  "
-		}
-	}
+	str += strings.Join(createColumnDeclarationStatements(typeDeclaration.TypePropertyDeclarations, typeDeclarations), ",\n  ")
 	str += "\n);"
 	return str
 }
 
-func createTableName(typeDeclaration TypeDeclaration) string {
-	if len(typeDeclaration.MetaData.TableName) > 0 {
-		return typeDeclaration.MetaData.TableName
-	} else {
-		return toSnakeCase(typeDeclaration.Name)
+func createColumnDeclarationStatements(typePropertyDeclarations []TypePropertyDeclaration, typeDeclarations []TypeDeclaration) []string {
+	statements := make([]string, len(typePropertyDeclarations))
+	for i := 0; i < len(typePropertyDeclarations); i++ {
+		statements[i] = createColumnDeclarationStatement(typePropertyDeclarations[i], typeDeclarations)
 	}
+	return statements
 }
 
-func createColumnDeclaration(typePropertyDeclaration TypePropertyDeclaration) string {
+// Creates the column declaration string, e.g. "id INTEGER serial PRIMARY KEY NOT NULL"
+func createColumnDeclarationStatement(typePropertyDeclaration TypePropertyDeclaration, typeDeclarations []TypeDeclaration) string {
 	str := ""
 	// Column name
-	str += createColumnName(typePropertyDeclaration) + " "
+	str += typePropertyDeclaration.MetaData.ColumnName + " "
 
 	// Field type name
 	str += createSqlTypeName(typePropertyDeclaration)
@@ -161,15 +176,27 @@ func createColumnDeclaration(typePropertyDeclaration TypePropertyDeclaration) st
 	if !typePropertyDeclaration.Optional {
 		str += "NOT NULL "
 	}
+
+	str = strings.TrimSpace(str)
+
+	foreignTypeName := typePropertyDeclaration.MetaData.Fk.TypeName // Alias
+	if len(foreignTypeName) > 0 {
+		foundForeignTypeDeclaration := findTypeDeclarationByTypeName(foreignTypeName, typeDeclarations)
+		str += ",\n  FOREIGN KEY (" + typePropertyDeclaration.MetaData.ColumnName + ")\n    REFERENCES " + foundForeignTypeDeclaration.MetaData.TableName + " (" + typePropertyDeclaration.MetaData.Fk.Property + ")"
+	}
+	// FOREIGN KEY (role_id)
+	//     REFERENCES roles (role_id)
+
 	return strings.TrimSpace(str)
 }
 
-func createColumnName(typePropertyDeclaration TypePropertyDeclaration) string {
-	if len(typePropertyDeclaration.MetaData.ColumnName) > 0 {
-		return typePropertyDeclaration.MetaData.ColumnName
-	} else {
-		return toSnakeCase(typePropertyDeclaration.Name)
+func findTypeDeclarationByTypeName(name string, typeDeclarations []TypeDeclaration) TypeDeclaration {
+	for i := 0; i < len(typeDeclarations); i++ {
+		if typeDeclarations[i].Name == name {
+			return typeDeclarations[i]
+		}
 	}
+	return TypeDeclaration{}
 }
 
 func createSqlTypeName(typePropertyDeclaration TypePropertyDeclaration) string {
@@ -197,21 +224,4 @@ func createSqlTypeName(typePropertyDeclaration TypePropertyDeclaration) string {
 	default:
 		return "[ERROR: \"" + typePropertyDeclaration.TypeName + "\" is not a valid type name]"
 	}
-}
-
-func readFile(path string) string {
-	fileText, err := os.ReadFile(path)
-	if err != nil {
-		fmt.Printf("Error occured reading in file %v:\n%v\n", path, err)
-	}
-	return string(fileText)
-}
-
-var matchFirstCap = regexp.MustCompile("(.)([A-Z][a-z]+)")
-var matchAllCap = regexp.MustCompile("([a-z0-9])([A-Z])")
-
-func toSnakeCase(str string) string {
-	snake := matchFirstCap.ReplaceAllString(str, "${1}_${2}")
-	snake = matchAllCap.ReplaceAllString(snake, "${1}_${2}")
-	return strings.ToLower(snake)
 }
