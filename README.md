@@ -19,9 +19,9 @@ export type User = {
    */
   /* ts2psql { "primaryKey": true, "serial": true } */
   id: number
-  /* ts2psql { "unqiue": true } */
+  /* ts2psql { "unique": true } */
   uuid: string
-  /* ts2psql { "unqiue": true, "maxLength": 50 } */
+  /* ts2psql { "unique": true, "maxLength": 50 } */
   name: string
   /* ts2psql { "default": false } */
   deleted: boolean
@@ -36,7 +36,7 @@ export type User = {
 ```
 
 ```
-ts2psql -f ./test.ts -o ./out.txt
+ts2psql -f ./test.ts -o ./out.sql
 ```
 
 out.sql:
@@ -44,8 +44,8 @@ out.sql:
 ```postgresql
 CREATE TABLE users (
   id serial PRIMARY KEY,
-  uuid VARCHAR ( 50 ) UNIQUE NOT NULL,
-  name VARCHAR ( 50 ) NOT NULL,
+  uuid VARCHAR(50) UNIQUE NOT NULL,
+  name VARCHAR(50) NOT NULL,
   ...
 );
 ```
