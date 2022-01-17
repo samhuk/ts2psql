@@ -1,10 +1,10 @@
 # ts2psql
 
-NOTE: This is WIP. Current usage: `go build && ./ts2psql` (or `go build && ts2psql` if on Windows OS).
-
 A script that converts Typescript type declarations into PostgreSQL CREATE TABLE scripts.
 
 This is mainly useful for saving time when statements have to be created for a large number of types in your various projects.
+
+NOTE: This is WIP. Current usage: `go build && ./ts2psql` (or `go build && ts2psql` if on Windows OS).
 
 ## Usage
 
